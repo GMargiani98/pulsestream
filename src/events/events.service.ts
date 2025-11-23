@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Kysely } from 'kysely';
+import { Kysely, sql } from 'kysely';
 import Redis from 'ioredis';
 import { DB_CONNECTION } from '../database/database.module';
 import { Database } from '../database/types';
@@ -54,5 +54,29 @@ export class EventsService implements OnModuleInit {
     } catch (error) {
       this.logger.error('Failed to flush events', error);
     }
+  }
+
+  async getStats() {
+    const byType = await this.db
+      .selectFrom('events')
+      .select(['type', this.db.fn.count('id').as('count')])
+      .groupBy('type')
+      .execute();
+
+    const byMinute = await this.db
+      .selectFrom('events')
+      .select((eb) => [
+        sql<string>`date_trunc('minute', ${eb.ref('created_at')})`.as('minute'),
+        eb.fn.count('id').as('count'),
+      ])
+      .where('created_at', '>', sql<Date>`now() - interval '1 hour'`)
+      .groupBy('minute')
+      .orderBy('minute', 'desc')
+      .execute();
+
+    return {
+      summary: byType,
+      timeline: byMinute,
+    };
   }
 }
